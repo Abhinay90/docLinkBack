@@ -8,6 +8,7 @@ const sendOtp = require("../../utils/sendOtp.utils");
 const sendNotification = require("../../utils/sendNotification.utils");
 const NotificationModel = require("../../models/Notification.model");
 const PatientModel = require("../../models/Patient.model");
+const createCronjob = require("../../utils/cronJobs.utils");
 
 const routes = {};
 
@@ -30,8 +31,6 @@ routes.register = async (req, res) => {
     if (!deviceToken) {
       return res.status(400).json({ error: "DeviceToken Is Required" });
     }
-
-
 
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
@@ -106,7 +105,20 @@ routes.login = async (req, res) => {
       return res.status(400).json({ error: "Invalid password" });
 
     patient.deviceToken = deviceToken;
-    await patient.save();
+    const logInPatient =await (await patient.save()).populate("cronJobs");
+
+    console.log(logInPatient);
+
+
+    patient?.cronJobs?.forEach((cronJob) => {
+      console.log(cronJob);
+      createCronjob({
+        schedule: cronJob.schedule,
+        task: cronJob.tasks,
+        deviceToken:patient?.deviceToken,
+      });
+    });
+
     const token = jwt.sign({ id: patient._id }, process.env.JWT_KEY, {
       expiresIn: "1d",
     });
@@ -118,6 +130,18 @@ routes.login = async (req, res) => {
         expiresIn: "1y",
       }
     );
+
+    console.log(patient?.cronJobs.schedule);
+    console.log(patient?.cronJobs.tasks);
+    console.log(patient?.deviceToken);
+
+  
+
+    // createCronjob({
+    //   schedule: patient?.cronJobs?.schedule,
+    //   task: patient?.cronJobs?.tasks,
+    //   deviceToken: patient?.deviceToken,
+    // });
 
     res
       .status(200)
@@ -138,12 +162,11 @@ routes.verifyAccount = async (req, res) => {
 
     if (!patient) return res.status(404).json({ error: "Account not found" });
 
-    if (!patient.deviceToken) 
-            console.log("device Token is required");
+    if (!patient.deviceToken) console.log("device Token is required");
 
     if (patient.isVerifiy)
       return res.status(400).json({ error: "Account already verified" });
-
+    console.log(patient.verificcationCode, code);
     if (patient.verificcationCode !== code)
       return res.status(400).json({ error: "Invalid verification code" });
 
@@ -162,12 +185,10 @@ routes.verifyAccount = async (req, res) => {
     // });
 
     const notificationRes = await NotificationModel.create({
-      body:{
-        type: "Registered",
-        message: notificationMessage,
-        data: {},
-        isRead:true
-      }
+      type: "Registered",
+      body: notificationMessage,
+      data: {},
+      isRead: true,
     });
 
     patient.readNotifications.push([notificationRes._id]), await patient.save();
@@ -315,11 +336,15 @@ routes.refreshAccessToken = async (req, res) => {
 routes.updateDeviceToken = async (req, res) => {
   const { id } = req.params;
   const { deviceToken } = req.body;
-  console.log(deviceToken)
+  console.log(deviceToken);
   // console.log(deviceToken)
-  const patient = await PatientModel.findByIdAndUpdate(id,{deviceToken:deviceToken},{new:true});
+  const patient = await PatientModel.findByIdAndUpdate(
+    id,
+    { deviceToken: deviceToken },
+    { new: true }
+  );
   if (!patient) return res.status(404).send({ error: "!patient not found" });
-  console.log(patient)
+  console.log(patient);
   // patient.deviceToken = deviceToken;
   // const data=await patient.save();
   res.status("200").json(patient);
